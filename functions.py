@@ -487,11 +487,23 @@ def full_tt(K1, K2, K3):
     return tf.transpose(res, list(range(1, num_dims + 1)) + [0, num_dims + 1])
 
 
+def faster_memory(convolution_op, inputs, K1, K2, K3):
+    return convolution_op(inputs, full_tt(K1, K2, K3))
+
+
+def slower_without_memory(convolution_op, inputs, K1, K2, K3):
+    inputs1 = convolution_op(inputs, tf.reshape(K1, (1, 1, K1.shape[0], K1.shape[1])))
+    inputs2 = convolution_op(inputs1, tf.transpose(K2, perm=[1, 2, 0, 3]))
+    return convolution_op(inputs2, tf.reshape(K3, (1, 1, K3.shape[0], K3.shape[1])))
+
+
 class ConvDecomposed2D(tf.keras.layers.Conv2D):
     def __init__(self,
                  filters,
                  kernel_size,
                  decomposition_rank,
+                 use_memory=True,
+                 use_memory_test=True,
                  strides=(1, 1),
                  padding='valid',
                  data_format=None,
@@ -530,12 +542,24 @@ class ConvDecomposed2D(tf.keras.layers.Conv2D):
         self.K3 = None
         self.bias = None
         self._convolution_op = None
+        self.use_memory = use_memory  # can be changed if we use too much memory in singular clipping anyway
+        self.use_memory_test = use_memory_test
 
     def build(self, input_shape):
+        input_shape = tf.TensorShape(input_shape).as_list()
+        if self.data_format == 'channels_last':
+            input_smth = input_shape[1:-1]
+        else:
+            input_smth = input_shape[2:]
         input_shape = tensor_shape.TensorShape(input_shape)
         input_channel = self._get_input_channel(input_shape)
         r1 = min(input_channel, self.decomposition_rank)
         r2 = min(self.filters, self.decomposition_rank)
+
+        # if not self.use_memory:
+        #     big_kernel = input_channel * self.filters * self.kernel_size[0] * self.kernel_size[1]
+        #     padded_kernel = r1 * r2 * input_smth[0] * input_smth[1]
+        #     self.use_memory = (big_kernel < padded_kernel)
 
         self.K1 = self.add_weight(
             name='K1',
@@ -601,9 +625,13 @@ class ConvDecomposed2D(tf.keras.layers.Conv2D):
             name=tf_op_name)
         self.built = True
 
-    def call(self, inputs):
-        outputs = self._convolution_op(inputs,
-                                       full_tt(self.K1, self.K2, self.K3))
+    def call(self, inputs, training=None):
+        if training and self.use_memory or not training and self.use_memory_test:
+            outputs = faster_memory(self._convolution_op, inputs, self.K1,
+                                    self.K2, self.K3)
+        else:
+            outputs = slower_without_memory(self._convolution_op, inputs,
+                                            self.K1, self.K2, self.K3)
         if self.use_bias:
             output_rank = outputs.shape.rank
             if self.rank == 1 and self._channels_first:
