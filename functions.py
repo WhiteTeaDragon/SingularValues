@@ -332,7 +332,7 @@ def svd_reconstruction(svds):
     return res
 
 class Clipping(tf.keras.callbacks.Callback):
-    def __init__(self, clip_to, compress_first=True, mode="decomposed"):
+    def __init__(self, clip_to, mode="decomposed", compress_first=True):
         tf.keras.callbacks.Callback.__init__(self)
         self.clip_to = clip_to
         if mode not in ("decomposed", "circulant", "simple"):
