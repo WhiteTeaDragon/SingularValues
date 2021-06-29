@@ -1,3 +1,4 @@
+# TT
 # Code for ResNet copied from
 # https://github.com/PacktPublishing/Advanced-Deep-Learning-with-Keras/blob/master/chapter2-deep-networks/resnet-cifar10-2.2.1.py
 from __future__ import absolute_import
@@ -98,7 +99,7 @@ def resnet_layer(inputs,
     return x
 
 
-def resnet_v1(input_shape, depth, num_classes=10, conv_layer=Conv2D, **kwargs):
+def resnet_v1(input_shape, depth, num_classes=10, conv_layer=Conv2D, compress_first=True, **kwargs):
     """ResNet Version 1 Model builder [a]
     Stacks of 2 x (3 x 3) Conv2D-BN-ReLU
     Last ReLU is after the shortcut connection.
@@ -133,7 +134,10 @@ def resnet_v1(input_shape, depth, num_classes=10, conv_layer=Conv2D, **kwargs):
     num_res_blocks = int((depth - 2) / 6)
 
     inputs = Input(shape=input_shape)
-    x = resnet_layer(inputs=inputs, conv_layer=conv_layer, **kwargs)
+    if compress_first:
+        x = resnet_layer(inputs=inputs, conv_layer=conv_layer, **kwargs)
+    else:
+        x = resnet_layer(inputs=inputs, conv_layer=Conv2D)
     # instantiate the stack of residual units
     for stack in range(3):
         for res_block in range(num_res_blocks):
@@ -180,128 +184,12 @@ def resnet_v1(input_shape, depth, num_classes=10, conv_layer=Conv2D, **kwargs):
     return model
 
 
-def resnet_v2(input_shape, depth, num_classes=10, conv_layer=Conv2D, **kwargs):
-    """ResNet Version 2 Model builder [b]
-    Stacks of (1 x 1)-(3 x 3)-(1 x 1) BN-ReLU-Conv2D or
-    also known as bottleneck layer.
-    First shortcut connection per layer is 1 x 1 Conv2D.
-    Second and onwards shortcut connection is identity.
-    At the beginning of each stage,
-    the feature map size is halved (downsampled)
-    by a convolutional layer with strides=2,
-    while the number of filter maps is
-    doubled. Within each stage, the layers have
-    the same number filters and the same filter map sizes.
-    Features maps sizes:
-    conv1  : 32x32,  16
-    stage 0: 32x32,  64
-    stage 1: 16x16, 128
-    stage 2:  8x8,  256
-    Arguments:
-        input_shape (tensor): shape of input image tensor
-        depth (int): number of core convolutional layers
-        num_classes (int): number of classes (CIFAR10 has 10)
-        conv_layer (keras.Layer): which layer to use as the basis for ResNet
-            (usually either Conv2D or ConvDecomposed2D)
-    Returns:
-        model (Model): Keras model instance
-    """
-    if (depth - 2) % 9 != 0:
-        raise ValueError('depth should be 9n+2 (eg 110 in [b])')
-    # start model definition.
-    num_filters_in = 16
-    num_res_blocks = int((depth - 2) / 9)
-
-    inputs = Input(shape=input_shape)
-    # v2 performs Conv2D with BN-ReLU
-    # on input before splitting into 2 paths
-    x = resnet_layer(inputs=inputs,
-                     num_filters=num_filters_in,
-                     conv_first=True,
-                     conv_layer=conv_layer,
-                     **kwargs)
-
-    # instantiate the stack of residual units
-    num_filters_out = num_filters_in * 2
-    for stage in range(3):
-        for res_block in range(num_res_blocks):
-            activation = 'relu'
-            batch_normalization = True
-            strides = 1
-            if stage == 0:
-                num_filters_out = num_filters_in * 4
-                # first layer and first stage
-                if res_block == 0:
-                    activation = None
-                    batch_normalization = False
-            else:
-                num_filters_out = num_filters_in * 2
-                # first layer but not first stage
-                if res_block == 0:
-                    # downsample
-                    strides = 2
-
-            # bottleneck residual unit
-            y = resnet_layer(inputs=x,
-                             num_filters=num_filters_in,
-                             kernel_size=1,
-                             strides=strides,
-                             activation=activation,
-                             batch_normalization=batch_normalization,
-                             conv_first=False,
-                             conv_layer=conv_layer,
-                             **kwargs)
-            y = resnet_layer(inputs=y,
-                             num_filters=num_filters_in,
-                             conv_first=False,
-                             conv_layer=conv_layer,
-                             **kwargs)
-            y = resnet_layer(inputs=y,
-                             num_filters=num_filters_out,
-                             kernel_size=1,
-                             conv_first=False,
-                             conv_layer=conv_layer,
-                             **kwargs)
-            if res_block == 0:
-                # linear projection residual shortcut connection
-                # to match changed dims
-                x = resnet_layer(inputs=x,
-                                 num_filters=num_filters_out,
-                                 kernel_size=1,
-                                 strides=strides,
-                                 activation=None,
-                                 batch_normalization=False,
-                                 conv_layer=conv_layer,
-                                 **kwargs)
-            x = add([x, y])
-
-        num_filters_in = num_filters_out
-
-    # add classifier on top.
-    # v2 has BN-ReLU before Pooling
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-    x = AveragePooling2D(pool_size=8)(x)
-    y = Flatten()(x)
-    outputs = Dense(num_classes,
-                    activation='softmax',
-                    kernel_initializer='he_normal')(y)
-
-    # instantiate model.
-    model = Model(inputs=inputs, outputs=outputs)
-    return model
-
-
-def define_and_compile_ResNet_model(input_shape, version=1, depth=32,
+def define_and_compile_ResNet_model(input_shape, depth=32, compress_first=True,
                                     conv_layer=Conv2D, **kwargs):
     # model name, depth and version
-    model_type = 'ResNet%dv%d' % (depth, version)
-    if version == 2:
-        model = resnet_v2(input_shape=input_shape, depth=depth,
-                          conv_layer=conv_layer, **kwargs)
-    else:
-        model = resnet_v1(input_shape=input_shape, depth=depth,
-                          conv_layer=conv_layer, **kwargs)
+    model_type = 'ResNet%dv1' % (depth)
+    model = resnet_v1(input_shape=input_shape, depth=depth,
+                          conv_layer=conv_layer, compress_first=compress_first, **kwargs)
 
     model.compile(loss='categorical_crossentropy',
                   optimizer=Adam(lr=lr_schedule(0)),
@@ -416,12 +304,38 @@ def Clip_OperatorNorm(conv, inp_shape, clip_to):
     return tf.slice(tf.transpose(clipped_conv_padded, perm=[2, 3, 0, 1]),
                     [0] * len(conv_shape), conv_shape), norm
 
+def circulant_sinvals(kernel, input_shape):
+    kernel_shape = kernel.shape
+    kernel_tr = tf.transpose(tf.cast(kernel, tf.complex128), [2, 3, 4, 0, 1])
+
+    padding = tf.constant([[0, 0], [0, 0], [0, 0],
+                           [0, input_shape[0] - kernel_shape[0]],
+                           [0, input_shape[1] - kernel_shape[1]]])
+
+    ps = tf.transpose(tf.signal.fft2d(tf.pad(kernel_tr, padding)), [3, 4, 0, 1, 2]) # puv from Sedghi
+    ps_fft = tf.signal.fft(ps) # diagonilizing puv-s
+    tensorok = tf.transpose(ps_fft, [0, 1, 4, 2, 3]) # corresponds to moving into blocks in theory
+    sinval = tf.linalg.svd(tensorok) # final values
+    return sinval
+
+def svd_reconstruction(svds):
+    u, sigma, v = svds
+    sigma = tf.cast(sigma, tf.complex128)
+    m, r, s = u.shape[0], u.shape[-1], v.shape[-2]
+
+    # reconstructing svd
+    rec0 = tf.matmul(u, tf.matmul(tf.linalg.diag(tf.cast(sigma, tf.complex128)), v, adjoint_b=True))
+
+    detensorok = tf.transpose(rec0, [0, 1, 3, 4, 2])
+    ps_ifft = tf.signal.ifft(detensorok)
+    res = tf.transpose(tf.signal.ifft2d(tf.transpose(ps_ifft, [2, 3, 4, 0, 1])), [3, 4, 0, 1, 2])
+    return res
 
 class Clipping(tf.keras.callbacks.Callback):
     def __init__(self, clip_to, mode="decomposed"):
         tf.keras.callbacks.Callback.__init__(self)
         self.clip_to = clip_to
-        if mode != "decomposed" and mode != "simple":
+        if mode not in ("decomposed", "circulant", "simple"):
             raise ValueError("Unsupported mode")
         self.mode = mode
 
@@ -445,15 +359,22 @@ class Clipping(tf.keras.callbacks.Callback):
                     K.set_value(layer.K1, K1)
                     K.set_value(layer.K3, K3)
                     K.set_value(layer.K2, K2)
+        elif self.mode == "circulant":
+            for layer in self.model.layers:
+                if layer.name.startswith("circ_conv2d"):
+                    sinvals, us, vs = circulant_sinvals(layer.K, layer.input_shape[1:3])
+                    sinvals_clipped = tf.cast(tf.minimum(sinvals, self.clip_to), tf.complex128)
+                    new_K = svd_reconstruction((us, sinvals_clipped, vs))
+                    k = layer.K.shape[0]
+                    K.set_value(layer.K, new_K[:k, :k])
         else:
             for layer in self.model.layers:
-                if layer.name[:6] == "conv2d":
+                if layer.name.startswith("conv2d"):
                     K.set_value(
                         layer.kernel,
                         Clip_OperatorNorm(layer.kernel, layer.input_shape[1:3],
                                           self.clip_to)[0]
                     )
-
 
 def plot_loss_acc(history, ub_loss=2, ub_error=0.4, max_len=None):
     if max_len is None:
@@ -474,6 +395,56 @@ def plot_loss_acc(history, ub_loss=2, ub_error=0.4, max_len=None):
     axs[0].legend(loc='best')
     axs[1].legend(loc='best')
 
+def complex_convolution(inputs, kernel):
+    '''performs convolution for complex inputs and kernel'''
+    inputs_real = tf.dtypes.cast(tf.math.real(inputs), tf.float32)
+    inputs_imag = tf.dtypes.cast(tf.math.imag(inputs), tf.float32)
+    kernel_real = tf.dtypes.cast(tf.math.real(kernel), tf.float32)
+    kernel_imag = tf.dtypes.cast(tf.math.imag(kernel), tf.float32)
+
+    outputs_real = tf.keras.backend.conv2d(inputs_real, kernel_real, [1] * len(inputs.shape), 'same')
+    outputs_real -= tf.keras.backend.conv2d(inputs_imag, kernel_imag, [1] * len(inputs.shape), 'same')
+    outputs_imag = tf.keras.backend.conv2d(inputs_real, kernel_imag, [1] * len(inputs.shape), 'same')
+    outputs_imag += tf.keras.backend.conv2d(inputs_imag, kernel_real, [1] * len(inputs.shape), 'same')
+
+    return tf.complex(outputs_real, outputs_imag)
+
+# @tf.custom_gradient # TODO: if we are adding custom gradient calculation, this is to be used
+def fft_convolution(K, inputs, filters): # TODO: add stride, padding and so on
+    # getting shapes
+    k, _, r, s, n = K.shape
+    batch_size, w, h, c0 = inputs.shape
+
+    # padding input to match kernel
+    inputs_padding = tf.constant([[0, 0], [0, 0], [0, 0], [0, r * n  - c0]])
+    input = tf.pad(inputs, inputs_padding)
+
+    # fft along the last dimension
+    input_fft_reshape = tf.signal.fft(tf.dtypes.cast(tf.reshape(input, (-1, w, h, r, n)), tf.complex128))
+    kernel_fft = tf.signal.fft(tf.dtypes.cast(K, tf.complex128))
+
+    # n (* 4) independent convolutions for complex inputs and kernel
+    outputs = []
+    # input_fft_reshape = tf.reshape(input_fft, (-1, w, h, r, n))
+    for i in range(n):
+        Y = complex_convolution(input_fft_reshape[:, :, :, :, i], kernel_fft[:, :, :, :, i])
+        outputs.append(Y)
+
+    # stacking outputs
+    outputs = tf.stack(outputs)
+    outputs = tf.transpose(outputs, [1, 2, 3, 4, 0])
+
+    # ifft & final reshape
+    outputs = tf.math.real(tf.signal.ifft(outputs))
+    outputs = tf.reshape(outputs, (-1, w, h, s * n))
+
+    # truncating outputs to the filter shape
+    outputs = outputs[:, :, :, :filters]
+
+    # TODO: backprop
+    # def gradient(dL):
+
+    return outputs
 
 def full_tt(K1, K2, K3):
     """Converts a TensorTrain into a regular tensor or matrix (tf.Tensor)."""
@@ -486,6 +457,15 @@ def full_tt(K1, K2, K3):
     num_dims = len(K2.shape[1:-1])
     return tf.transpose(res, list(range(1, num_dims + 1)) + [0, num_dims + 1])
 
+def full_circ(kernel, input_shape):
+    """Converts the truncated circular version of kernel with size k k rn s into the full version with size k k rn sn."""
+
+    m, _, r, s, n = kernel.shape
+
+    full_kernel = tf.stack([tf.roll(kernel, i, -1) for i in range(n)], axis=-1)
+    full_kernel = tf.reshape(tf.transpose(full_kernel, [0, 1, 2, 4, 3, 5]), (m, m, r * n, s * n))
+
+    return full_kernel[:, :, :input_shape[0], :input_shape[1]]
 
 def faster_memory(convolution_op, inputs, K1, K2, K3):
     return convolution_op(inputs, full_tt(K1, K2, K3))
@@ -496,6 +476,133 @@ def slower_without_memory(convolution_op, inputs, K1, K2, K3):
     inputs2 = convolution_op(inputs1, tf.transpose(K2, perm=[1, 2, 0, 3]))
     return convolution_op(inputs2, tf.reshape(K3, (1, 1, K3.shape[0], K3.shape[1])))
 
+class CircConv2D(tf.keras.layers.Conv2D):
+    def __init__(self,
+               filters,
+               kernel_size,
+               n,   # c0 = R * n, c2 = S * n
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='glorot_uniform',
+               bias_initializer='zeros',
+               kernel_regularizer=None,
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               **kwargs):
+        super(CircConv2D, self).__init__(
+               filters=filters,
+               kernel_size=kernel_size,
+               strides=strides, # doesn't support strides
+               padding=padding, # as well as padding
+               data_format=data_format,
+               dilation_rate=dilation_rate,
+               groups=1, # does not support groups!
+               activation=activation,
+               use_bias=use_bias,
+               kernel_initializer=kernel_initializer,
+               bias_initializer=bias_initializer,
+               kernel_regularizer=kernel_regularizer,
+               bias_regularizer=bias_regularizer,
+               activity_regularizer=activity_regularizer,
+               kernel_constraint=kernel_constraint,
+               bias_constraint=bias_constraint,
+               **kwargs)
+        self.n = n
+        self.K = None
+        self.bias = None
+        self._convolution_op = None
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        input_channel = self._get_input_channel(input_shape)
+
+        if input_channel < self.n:
+            print("input_channel number is less than n, shrinking n forcibly")
+            self.n = input_channel
+        if self.filters < self.n:
+            print("output_channel number is less than n, shrinking n forcibly")
+            self.n = self.filters
+        r, s = int(np.ceil(input_channel / self.n)), int(np.ceil(self.filters / self.n))
+
+        self.K = self.add_weight(
+            name='K',
+            shape=(self.kernel_size[0], self.kernel_size[0], r, s, self.n),
+            initializer=self.kernel_initializer,
+            regularizer=self.kernel_regularizer,
+            constraint=self.kernel_constraint,
+            trainable=True,
+            dtype=self.dtype)
+
+        # the rest is copied from Conv build function
+        if self.use_bias:
+            self.bias = self.add_weight(
+              name='bias',
+              shape=(self.filters,),
+              initializer=self.bias_initializer,
+              regularizer=self.bias_regularizer,
+              constraint=self.bias_constraint,
+              trainable=True,
+              dtype=self.dtype)
+        else:
+            self.bias = None
+        channel_axis = self._get_channel_axis()
+        self.input_spec = InputSpec(min_ndim=self.rank + 2,
+                                    axes={channel_axis: input_channel})
+
+        # Convert Keras formats to TF native formats.
+        if self.padding == 'causal':
+            tf_padding = 'VALID'  # Causal padding handled in `call`.
+        elif isinstance(self.padding, six.string_types):
+            tf_padding = self.padding.upper()
+        else:
+            tf_padding = self.padding
+        tf_dilations = list(self.dilation_rate)
+        tf_strides = list(self.strides)
+
+        tf_op_name = self.__class__.__name__
+        if tf_op_name == 'Conv1D':
+            tf_op_name = 'conv1d'  # Backwards compat.
+
+        self._convolution_op = functools.partial(
+            nn_ops.convolution_v2,
+            strides=tf_strides,
+            padding=tf_padding,
+            dilations=tf_dilations,
+            data_format=self._tf_data_format,
+            name=tf_op_name)
+        self.built = True
+
+    def call(self, inputs):
+        # outputs = fft_convolution(self.K, inputs, self.filters) # not used because of for loop that slows down the calculation
+        outputs = self._convolution_op(inputs, full_circ(self.K, (inputs.shape[-1], self.filters)))
+
+        if self.use_bias:
+            output_rank = outputs.shape.rank
+            if self.rank == 1 and self._channels_first:
+                # nn.bias_add does not accept a 1D input tensor.
+                bias = array_ops.reshape(self.bias, (1, self.filters, 1))
+                outputs += bias
+            else:
+                # Handle multiple batch dimensions.
+                if output_rank is not None and output_rank > 2 + self.rank:
+
+                    def _apply_fn(o):
+                        return nn.bias_add(o, self.bias, data_format=self._tf_data_format)
+
+                    outputs = nn_ops.squeeze_batch_dims(
+                      outputs, _apply_fn, inner_rank=self.rank + 1)
+                else:
+                    outputs = nn.bias_add(
+                      outputs, self.bias, data_format=self._tf_data_format)
+        if self.activation is not None:
+            return self.activation(outputs)
+        return outputs
 
 class ConvDecomposed2D(tf.keras.layers.Conv2D):
     def __init__(self,
