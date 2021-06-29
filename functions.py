@@ -332,12 +332,13 @@ def svd_reconstruction(svds):
     return res
 
 class Clipping(tf.keras.callbacks.Callback):
-    def __init__(self, clip_to, mode="decomposed"):
+    def __init__(self, clip_to, compress_first=True, mode="decomposed"):
         tf.keras.callbacks.Callback.__init__(self)
         self.clip_to = clip_to
         if mode not in ("decomposed", "circulant", "simple"):
             raise ValueError("Unsupported mode")
         self.mode = mode
+        self.compress_first = compress_first
 
     @staticmethod
     def get_new_K(K1, K2, K3):
@@ -368,8 +369,12 @@ class Clipping(tf.keras.callbacks.Callback):
                     k = layer.K.shape[0]
                     K.set_value(layer.K, new_K[:k, :k])
         else:
+            is_first = self.compress_first
             for layer in self.model.layers:
                 if layer.name.startswith("conv2d"):
+                    if not is_first:
+                        is_first = True
+                        continue
                     K.set_value(
                         layer.kernel,
                         Clip_OperatorNorm(layer.kernel, layer.input_shape[1:3],
