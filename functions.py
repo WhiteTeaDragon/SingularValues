@@ -385,8 +385,12 @@ class Clipping(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epochs, logs=None):
         if self.mode == "decomposed":
+            is_first = self.compress_first
             for layer in self.model.layers:
                 if layer.name[:17] == "conv_decomposed2d":
+                    if not is_first:
+                        is_first = True
+                        continue
                     K1, K2, K3 = self.get_new_K(layer.K1, layer.K2, layer.K3)
                     K2 = tf.transpose(Clip_OperatorNorm(K2,
                                                         layer.input_shape[1:3],
@@ -395,6 +399,16 @@ class Clipping(tf.keras.callbacks.Callback):
                     K.set_value(layer.K1, K1)
                     K.set_value(layer.K3, K3)
                     K.set_value(layer.K2, K2)
+                elif layer.name.startswith("conv2d"):
+                    if not is_first:
+                        is_first = True
+                        continue
+                    K.set_value(
+                        layer.kernel,
+                        Clip_OperatorNorm(layer.kernel, layer.input_shape[1:3],
+                                          self.clip_to)[0]
+                    )
+
         elif self.mode == "circulant":
             for layer in self.model.layers:
                 if layer.name.startswith("circ_conv2d"):
