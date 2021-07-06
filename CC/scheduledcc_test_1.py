@@ -110,7 +110,7 @@ prefix = "sch_" + str(mod_num) + "_"
 """#### Model without clipping"""
 
 model, model_type = functions.define_and_compile_ResNet_model(
-    input_shape, conv_layer = functions.CircConv2D, n=2, compress_schedule=schedule)
+    input_shape, conv_layer = functions.CircConv2D, compress_schedule=schedule)
 model.summary()
 
 history = functions.run_training(model, model_type, x_train, y_train, x_test, y_test,
@@ -127,7 +127,7 @@ with open(save_dir + prefix + 'trainHistoryDict', 'wb') as f:
 """#### Model with clipping to 0.5"""
 
 model, model_type = functions.define_and_compile_ResNet_model(
-    input_shape, conv_layer = functions.CircConv2D, n=2, compress_schedule=schedule)
+    input_shape, conv_layer = functions.CircConv2D, compress_schedule=schedule)
 
 callbacks = functions.standard_callbacks(model_type) + [functions.Clipping(0.5)]
 history = functions.run_training(model, model_type, x_train, y_train, x_test, y_test,
@@ -145,7 +145,7 @@ with open(save_dir + prefix + 'trainHistoryDict_clip_05', 'wb') as f:
 """#### Model with clipping to 1"""
 
 model, model_type = functions.define_and_compile_ResNet_model(
-    input_shape, conv_layer = functions.CircConv2D, n=2, compress_schedule=schedule)
+    input_shape, conv_layer = functions.CircConv2D, compress_schedule=schedule)
 
 callbacks = functions.standard_callbacks(model_type) + [functions.Clipping(1)]
 history = functions.run_training(model, model_type, x_train, y_train, x_test, y_test,
